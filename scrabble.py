@@ -116,7 +116,7 @@ LETTER_POINTS = {
     },
 }
 
-# Language names for responses
+# Language names for responses (German)
 LANGUAGE_NAMES = {
     'de': 'Deutsch',
     'en': 'Englisch',
@@ -129,6 +129,37 @@ LANGUAGE_NAMES = {
     'ru': 'Russisch',
     'sv': 'Schwedisch',
     'tr': 'Türkisch',
+}
+
+# Language names for responses (Native)
+LOCALIZED_NAMES = {
+    'de': 'Deutsch',
+    'en': 'English',
+    'fr': 'Français',
+    'es': 'Español',
+    'it': 'Italiano',
+    'nl': 'Nederlands',
+    'pl': 'Polski',
+    'pt': 'Português',
+    'ru': 'Русский',
+    'sv': 'Svenska',
+    'tr': 'Türkçe',
+}
+
+# Localized response templates
+# Format: (Singular template, Plural template)
+RESPONSE_TEMPLATES = {
+    'de': ('Das Wort "{word}" ist 1 Scrabble-Punkt wert ({lang}).', 'Das Wort "{word}" ist {points} Scrabble-Punkte wert ({lang}).'),
+    'en': ('The word "{word}" is worth 1 Scrabble point ({lang}).', 'The word "{word}" is worth {points} Scrabble points ({lang}).'),
+    'fr': ('Le mot "{word}" vaut 1 point au Scrabble ({lang}).', 'Le mot "{word}" vaut {points} points au Scrabble ({lang}).'),
+    'es': ('La palabra "{word}" vale 1 punto de Scrabble ({lang}).', 'La palabra "{word}" vale {points} puntos de Scrabble ({lang}).'),
+    'it': ('La parola "{word}" vale 1 punto a Scrabble ({lang}).', 'La parola "{word}" vale {points} punti a Scrabble ({lang}).'),
+    'nl': ('Het woord "{word}" is 1 Scrabble-punt waard ({lang}).', 'Het woord "{word}" is {points} Scrabble-punten waard ({lang}).'),
+    'pl': ('Słowo "{word}" jest warte 1 punkt w Scrabble ({lang}).', 'Słowo "{word}" jest warte {points} punktów w Scrabble ({lang}).'),
+    'pt': ('A palavra "{word}" vale 1 ponto de Scrabble ({lang}).', 'A palavra "{word}" vale {points} pontos de Scrabble ({lang}).'),
+    'ru': ('Слово "{word}" стоит 1 очко Скраббл ({lang}).', 'Слово "{word}" стоит {points} очков Скраббл ({lang}).'),
+    'sv': ('Ordet "{word}" är värt 1 Scrabble-poäng ({lang}).', 'Ordet "{word}" är värt {points} Scrabble-poäng ({lang}).'),
+    'tr': ('"{word}" kelimesi 1 Scrabble puanı değerindedir ({lang}).', '"{word}" kelimesi {points} Scrabble puanı değerindedir ({lang}).'),
 }
 
 DEFAULT_LANGUAGE = 'de'
@@ -194,6 +225,14 @@ def calculate_points(word: str, language: str | None = None) -> tuple[int, str]:
     return total, language
 
 
-def get_language_name(lang_code: str) -> str:
-    """Get the German name for a language code."""
+def get_language_name(lang_code: str, localized: bool = False) -> str:
+    """Get the name for a language code (German or localized)."""
+    if localized:
+        return LOCALIZED_NAMES.get(lang_code, lang_code)
     return LANGUAGE_NAMES.get(lang_code, lang_code)
+
+
+def get_response_template(lang_code: str, points: int) -> str:
+    """Get the localized response template for a language and point count."""
+    templates = RESPONSE_TEMPLATES.get(lang_code, RESPONSE_TEMPLATES[DEFAULT_LANGUAGE])
+    return templates[0] if points == 1 else templates[1]
