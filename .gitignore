@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+__pycache__
 *.py[oc]
 build/
 dist/
@@ -10,5 +11,16 @@ wheels/
 .venv
 .env
 venv
+
+# IDE files
+.vscode/
+.idea/  
 .claude
-__pycache__
+
+# MacOS files
+.DS_Store   
+*.swp
+*.swo           
+
+# Sensitive data files
+last_ids.json
