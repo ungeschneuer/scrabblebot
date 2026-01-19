@@ -142,16 +142,26 @@ class ScrabbleListener(StreamListener):
         super().__init__()
 
     def on_notification(self, notification):
-        """Handle new notifications (mentions)."""
+        """Handle new notifications (mentions, including filtered and direct)."""
         if notification['type'] == 'mention':
             status = notification['status']
             account_id = str(status['account']['id'])
-            
+
             # Ignore own notifications (e.g. from own replies)
             if account_id == self.bot.my_id:
                 return
 
-            logger.info(f"Notification received: Mention from {status['account']['acct']}")
+            visibility = status.get('visibility', 'public')
+            is_filtered = notification.get('filtered') is not None
+
+            # Log the type of mention
+            if visibility == 'direct':
+                logger.info(f"Notification received: Direct mention from {status['account']['acct']}")
+            elif is_filtered:
+                logger.info(f"Notification received: Filtered mention from {status['account']['acct']}")
+            else:
+                logger.info(f"Notification received: Mention from {status['account']['acct']}")
+
             self.bot.process_status(status, is_mention=True)
 
     def _dispatch(self, event):
