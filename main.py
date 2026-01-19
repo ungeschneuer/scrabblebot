@@ -7,6 +7,7 @@ import time
 import logging
 import signal
 import sys
+import atexit
 from html import unescape
 from collections import defaultdict
 from typing import Dict, List
@@ -187,6 +188,7 @@ class ScrabbleBot:
         # Internal state
         self.mastodon = None
         self.bt_account_id = None
+        self.my_id = None  # Bot's own account ID
         self.last_mention_id = None
         self.last_bt_id = None
         self.reconnect_count = 0
@@ -211,11 +213,16 @@ class ScrabbleBot:
         """
         for attempt in range(max_retries):
             try:
-                self.mastodon.status_reply(
+                reply_status = self.mastodon.status_reply(
                     to_status=status,
                     status=message,
                     visibility=status["visibility"],
                 )
+
+                # Add our own reply to processed cache to avoid processing it
+                if reply_status and 'id' in reply_status:
+                    self.processed_status_ids.add(reply_status['id'])
+
                 return True
             except MastodonRatelimitError as e:
                 # Rate limited - wait and retry
@@ -274,6 +281,15 @@ class ScrabbleBot:
             access_token=self.access_token,
             api_base_url=self.mastodon_instance,
         )
+
+        # Get bot's own account ID
+        try:
+            my_account = self.mastodon.account_verify_credentials()
+            self.my_id = str(my_account["id"])
+            logger.info(f"Bot läuft als @{my_account['username']} (ID: {self.my_id})")
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen der Bot-Credentials: {e}")
+            return False
 
         # Get the account ID of the target using public lookup
         # (access token has limited scopes, so we use unauthenticated lookup)
@@ -534,7 +550,51 @@ class ScrabbleBot:
         self.shutdown()
 
 
+def check_single_instance():
+    """Ensure only one instance of the bot is running."""
+    pid_file = "/tmp/scrabble-bot.pid"
+
+    # Check if PID file exists
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, 'r') as f:
+                old_pid = int(f.read().strip())
+
+            # Check if process is still running
+            try:
+                os.kill(old_pid, 0)  # Signal 0 checks if process exists
+                logger.error(f"Bot ist bereits am Laufen (PID: {old_pid})")
+                sys.exit(1)
+            except OSError:
+                # Process doesn't exist, remove stale PID file
+                logger.warning(f"Stale PID file gefunden, entferne es")
+                os.remove(pid_file)
+        except (ValueError, IOError) as e:
+            logger.warning(f"Konnte PID file nicht lesen: {e}")
+            os.remove(pid_file)
+
+    # Write our PID
+    with open(pid_file, 'w') as f:
+        f.write(str(os.getpid()))
+
+    # Register cleanup
+    def cleanup_pid():
+        try:
+            if os.path.exists(pid_file):
+                with open(pid_file, 'r') as f:
+                    stored_pid = int(f.read().strip())
+                if stored_pid == os.getpid():
+                    os.remove(pid_file)
+        except:
+            pass
+
+    atexit.register(cleanup_pid)
+
+
 if __name__ == "__main__":
+    # Ensure only one instance is running
+    check_single_instance()
+
     bot = ScrabbleBot()
 
     # Setup signal handlers for graceful shutdown
