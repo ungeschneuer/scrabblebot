@@ -3,7 +3,7 @@ name = "scrabblebot-nosync"
 version = "0.1.0"
 description = "Mastodon bot that calculates Scrabble points for words in multiple languages"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
     "Mastodon.py>=1.8.0",
     "python-dotenv>=1.0.0",
