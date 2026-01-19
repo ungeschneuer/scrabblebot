@@ -245,6 +245,9 @@ LANGUAGE_FALLBACKS = {
     'ro': 'it',  # Romanian -> Italian
 }
 
+# Supported languages - extracted for reuse across modules
+SUPPORTED_LANGUAGES = frozenset(LETTER_POINTS.keys())
+
 
 def has_cyrillic(text: str) -> bool:
     """Check if text contains Cyrillic characters."""

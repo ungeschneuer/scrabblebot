@@ -25,7 +25,8 @@ from scrabble import (
     get_rate_limit_message,
     get_unsupported_language_message,
     is_valid_word,
-    is_unsupported_language
+    is_unsupported_language,
+    SUPPORTED_LANGUAGES
 )
 
 load_dotenv()
@@ -240,30 +241,76 @@ class ScrabbleBot:
                 return True
             except MastodonRatelimitError as e:
                 # Rate limited - wait and retry
-                logger.warning(f"Rate limited, warte vor Retry (Versuch {attempt + 1}/{max_retries})")
+                logger.warning(f"Rate limited, waiting before retry (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     time.sleep(5 * (attempt + 1))  # Exponential backoff
                 else:
-                    logger.error(f"Rate limit erreicht nach {max_retries} Versuchen: {e}")
+                    logger.error(f"Rate limit reached after {max_retries} attempts: {e}")
                     return False
             except MastodonNetworkError as e:
                 # Network error - retry
-                logger.warning(f"Netzwerkfehler, versuche erneut (Versuch {attempt + 1}/{max_retries}): {e}")
+                logger.warning(f"Network error, retrying (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(2)
                 else:
-                    logger.error(f"Netzwerkfehler nach {max_retries} Versuchen: {e}")
+                    logger.error(f"Network error after {max_retries} attempts: {e}")
                     return False
             except MastodonAPIError as e:
                 # API error - likely not transient, don't retry
-                logger.error(f"API Fehler beim Senden der Antwort: {e}")
+                logger.error(f"API error sending reply: {e}")
                 return False
             except Exception as e:
                 # Unknown error
-                logger.error(f"Unbekannter Fehler beim Senden der Antwort: {e}")
+                logger.error(f"Unknown error sending reply: {e}")
                 return False
 
         return False
+
+    def send_error_response(self, status, error_type: str, context: str = "", override_lang: str = None) -> bool:
+        """
+        Send localized error response based on status language.
+
+        Args:
+            status: The status to reply to
+            error_type: Type of error ('multiple_words', 'invalid_word', 'rate_limited', 'unsupported_language')
+            context: Optional context for logging (e.g., word that caused error)
+            override_lang: Optional language override (for unsupported language detection)
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Get and validate post language
+        if override_lang:
+            post_lang = override_lang
+        else:
+            post_lang = status.get("language", "de")
+            if post_lang not in SUPPORTED_LANGUAGES:
+                post_lang = "de"
+
+        # Get appropriate error message function
+        error_msg_functions = {
+            'multiple_words': get_error_message,
+            'invalid_word': get_invalid_word_message,
+            'rate_limited': get_rate_limit_message,
+            'unsupported_language': get_unsupported_language_message
+        }
+
+        if error_type not in error_msg_functions:
+            logger.error(f"Unknown error type: {error_type}")
+            return False
+
+        error_msg = error_msg_functions[error_type](post_lang)
+
+        # Send error message
+        if self.send_reply_with_retry(status, error_msg):
+            log_msg = f"{error_type} error sent"
+            if context:
+                log_msg += f": {context}"
+            logger.info(log_msg)
+            return True
+        else:
+            logger.error(f"Could not send {error_type} error message")
+            return False
 
     def get_backoff_delay(self, count: int, is_malformed: bool = False) -> int:
         """
@@ -288,7 +335,7 @@ class ScrabbleBot:
     def setup(self):
         """Initialize Mastodon API and account state."""
         if not self.access_token:
-            logger.error("Fehler: MASTODON_BOT_ACCESS_TOKEN nicht in .env gefunden.")
+            logger.error("Error: MASTODON_BOT_ACCESS_TOKEN not found in .env")
             return False
 
         self.mastodon = Mastodon(
@@ -300,9 +347,9 @@ class ScrabbleBot:
         try:
             my_account = self.mastodon.account_verify_credentials()
             self.my_id = str(my_account["id"])
-            logger.info(f"Bot läuft als @{my_account['username']} (ID: {self.my_id})")
+            logger.info(f"Bot running as @{my_account['username']} (ID: {self.my_id})")
         except Exception as e:
-            logger.error(f"Fehler beim Abrufen der Bot-Credentials: {e}")
+            logger.error(f"Error fetching bot credentials: {e}")
             return False
 
         # Get the account ID of the target using public lookup (optional)
@@ -312,12 +359,12 @@ class ScrabbleBot:
                 public_mastodon = Mastodon(api_base_url=self.mastodon_instance)
                 target_account = public_mastodon.account_lookup(self.bt_account_name)
                 self.bt_account_id = target_account["id"]
-                logger.info(f"Account @{self.bt_account_name} gefunden (ID: {self.bt_account_id}) - Monitoring aktiviert")
+                logger.info(f"Account @{self.bt_account_name} found (ID: {self.bt_account_id}) - Monitoring enabled")
             except Exception as e:
-                logger.error(f"Fehler: Account @{self.bt_account_name} nicht gefunden: {e}")
+                logger.error(f"Error: Account @{self.bt_account_name} not found: {e}")
                 return False
         else:
-            logger.info("Kein Account zum Monitoren konfiguriert - nur Mention-Modus aktiv")
+            logger.info("No account configured for monitoring - mention-only mode active")
 
         # Load persistence state
         self.load_state()
@@ -332,7 +379,7 @@ class ScrabbleBot:
                     self.last_mention_id = state.get("mentions")
                     self.last_bt_id = state.get("bt_posts")
             except (json.JSONDecodeError, IOError):
-                logger.warning("Letzte IDs konnten nicht geladen werden, verwende Standardwerte.")
+                logger.warning("Could not load last IDs, using default values")
 
     def save_state(self):
         """Save last processed IDs."""
@@ -343,7 +390,7 @@ class ScrabbleBot:
                     "bt_posts": self.last_bt_id
                 }, f)
         except IOError as e:
-            logger.error(f"Fehler beim Speichern der IDs: {e}")
+            logger.error(f"Error saving IDs: {e}")
 
     def strip_html(self, text: str) -> str:
         """Remove HTML tags and decode entities."""
@@ -427,15 +474,7 @@ class ScrabbleBot:
 
             # Check rate limit for mentions (only rate limit mentions, not bt_first_said posts)
             if not self.rate_limiter.is_allowed(user_id):
-                post_lang = status.get("language", "de")
-                if post_lang not in ['de', 'en', 'fr', 'es', 'it', 'nl', 'pl', 'pt', 'ru', 'sv', 'tr']:
-                    post_lang = "de"
-                error_msg = get_rate_limit_message(post_lang)
-
-                if self.send_reply_with_retry(status, error_msg):
-                    logger.info(f"Rate limit Fehler gesendet an User {user_id}")
-                else:
-                    logger.error("Rate limit Fehlermeldung konnte nicht gesendet werden")
+                self.send_error_response(status, 'rate_limited', f"user {user_id}")
                 return
 
         elif self.is_single_word(content):
@@ -453,29 +492,13 @@ class ScrabbleBot:
 
         # Handle multiple words error for mentions
         if is_mention and has_multiple_words:
-            post_lang = status.get("language", "de")
-            if post_lang not in ['de', 'en', 'fr', 'es', 'it', 'nl', 'pl', 'pt', 'ru', 'sv', 'tr']:
-                post_lang = "de"
-            error_msg = get_error_message(post_lang)
-
-            if self.send_reply_with_retry(status, error_msg):
-                logger.info(f"Fehler gesendet: Mehrere Wörter erkannt")
-            else:
-                logger.error("Fehlermeldung konnte nicht gesendet werden")
+            self.send_error_response(status, 'multiple_words')
             return
 
         if word:
             # Validate word contains only letters
             if not is_valid_word(word):
-                post_lang = status.get("language", "de")
-                if post_lang not in ['de', 'en', 'fr', 'es', 'it', 'nl', 'pl', 'pt', 'ru', 'sv', 'tr']:
-                    post_lang = "de"
-                error_msg = get_invalid_word_message(post_lang)
-
-                if self.send_reply_with_retry(status, error_msg):
-                    logger.info(f"Fehler gesendet: Ungültiges Wort '{word}'")
-                else:
-                    logger.error("Fehlermeldung konnte nicht gesendet werden")
+                self.send_error_response(status, 'invalid_word', f"word '{word}'")
                 return
 
             # Word is valid, calculate points and respond
@@ -485,36 +508,31 @@ class ScrabbleBot:
             # Check if word is in an unsupported language (0 points + unsupported chars)
             if is_unsupported_language(word, points):
                 # Use post language if available, otherwise use detected language
-                error_lang = post_lang if post_lang and post_lang in ['de', 'en', 'fr', 'es', 'it', 'nl', 'pl', 'pt', 'ru', 'sv', 'tr'] else detected_lang
-                error_msg = get_unsupported_language_message(error_lang)
-
-                if self.send_reply_with_retry(status, error_msg):
-                    logger.info(f"Unsupported language Fehler gesendet für Wort '{word}'")
-                else:
-                    logger.error("Unsupported language Fehlermeldung konnte nicht gesendet werden")
+                error_lang = post_lang if post_lang and post_lang in SUPPORTED_LANGUAGES else detected_lang
+                self.send_error_response(status, 'unsupported_language', f"word '{word}'", override_lang=error_lang)
                 return
 
             # Format and send normal response (reuse already calculated points and language)
             response = format_response(word, post_lang, points, detected_lang)
 
             if self.send_reply_with_retry(status, response):
-                logger.info(f"Antwort gesendet: {word} -> {response}")
+                logger.info(f"Response sent: {word} -> {response}")
             else:
-                logger.error(f"Antwort konnte nicht gesendet werden für Wort: {word}")
+                logger.error(f"Could not send response for word: {word}")
 
     def shutdown(self):
         """Gracefully shutdown the bot."""
-        logger.info("Graceful shutdown initiiert...")
+        logger.info("Graceful shutdown initiated...")
         self.shutdown_requested = True
         self.save_state()
-        logger.info("Bot erfolgreich heruntergefahren.")
+        logger.info("Bot shutdown successfully")
 
     def run(self):
         """Start the streaming loop with reconnection logic."""
         if not self.setup():
             return
 
-        logger.info("Bot gestartet. Wechsel zu Real-time Streaming...")
+        logger.info("Bot started. Switching to real-time streaming...")
         listener = ScrabbleListener(self)
 
         # Track last cleanup time for rate limiter
@@ -538,7 +556,7 @@ class ScrabbleBot:
                 consecutive_malformed_errors = 0
                 self.reconnect_count = 0
             except KeyboardInterrupt:
-                logger.info("KeyboardInterrupt empfangen, beende Bot...")
+                logger.info("KeyboardInterrupt received, shutting down bot...")
                 break
             except MastodonMalformedEventError as e:
                 if self.shutdown_requested:
@@ -547,8 +565,8 @@ class ScrabbleBot:
                 consecutive_malformed_errors += 1
                 delay = self.get_backoff_delay(consecutive_malformed_errors, is_malformed=True)
                 
-                logger.warning(f"Malformed event im Stream (Versuch {consecutive_malformed_errors}): {e}")
-                logger.info(f"Reconnect in {delay} Sekunden...")
+                logger.warning(f"Malformed event in stream (attempt {consecutive_malformed_errors}): {e}")
+                logger.info(f"Reconnecting in {delay} seconds...")
                 time.sleep(delay)
                 continue
             except Exception as e:
@@ -560,8 +578,8 @@ class ScrabbleBot:
                 
                 delay = self.get_backoff_delay(self.reconnect_count, is_malformed=False)
                 
-                logger.error(f"Stream-Verbindung abgebrochen: {e} (Versuch {self.reconnect_count})")
-                logger.info(f"Reconnect in {delay} Sekunden...")
+                logger.error(f"Stream connection closed: {e} (attempt {self.reconnect_count})")
+                logger.info(f"Reconnecting in {delay} seconds...")
                 time.sleep(delay)
 
         self.shutdown()
@@ -580,14 +598,14 @@ def check_single_instance():
             # Check if process is still running
             try:
                 os.kill(old_pid, 0)  # Signal 0 checks if process exists
-                logger.error(f"Bot ist bereits am Laufen (PID: {old_pid})")
+                logger.error(f"Bot is already running (PID: {old_pid})")
                 sys.exit(1)
             except OSError:
                 # Process doesn't exist, remove stale PID file
-                logger.warning(f"Stale PID file gefunden, entferne es")
+                logger.warning(f"Stale PID file found, removing it")
                 os.remove(pid_file)
         except (ValueError, IOError) as e:
-            logger.warning(f"Konnte PID file nicht lesen: {e}")
+            logger.warning(f"Could not read PID file: {e}")
             os.remove(pid_file)
 
     # Write our PID
@@ -616,7 +634,7 @@ if __name__ == "__main__":
 
     # Setup signal handlers for graceful shutdown
     def signal_handler(sig, frame):
-        logger.info(f"Signal {sig} empfangen, beende Bot gracefully...")
+        logger.info(f"Signal {sig} received, shutting down bot gracefully...")
         bot.shutdown_requested = True
 
     signal.signal(signal.SIGINT, signal_handler)
