@@ -144,6 +144,12 @@ class ScrabbleListener(StreamListener):
         """Handle new notifications (mentions)."""
         if notification['type'] == 'mention':
             status = notification['status']
+            account_id = str(status['account']['id'])
+            
+            # Ignore own notifications (e.g. from own replies)
+            if account_id == self.bot.my_id:
+                return
+
             logger.info(f"Notification received: Mention from {status['account']['acct']}")
             self.bot.process_status(status, is_mention=True)
 
