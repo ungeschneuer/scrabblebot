@@ -105,7 +105,7 @@ All settings are controlled via environment variables in the `.env` file:
 | `MASTODON_BOT_CLIENT_SECRET` | API client secret | - |
 | `MASTODON_BOT_ACCESS_TOKEN` | API access token (required) | - |
 | `MASTODON_INSTANCE` | Mastodon instance URL | `https://mastodon.social` |
-| `BT_FIRST_SAID_ACCOUNT` | Account name to monitor | `bt_first_said` |
+| `BT_FIRST_SAID_ACCOUNT` | Account to monitor (optional) | None (mention-only mode) |
 | `LAST_IDS_FILE` | File for state persistence | `last_ids.json` |
 | `DEFAULT_LANGUAGE` | Fallback language | `de` |
 | `RECONNECT_DELAY_SECONDS` | Wait time between reconnects | `30` |
@@ -149,9 +149,9 @@ Das Wort "SECRET" ist 8 Scrabble-Punkte wert (Englisch).
 
 The bot processes filtered mentions just like regular mentions, ensuring no mentions are missed.
 
-### Monitoring mode
+### Monitoring mode (optional)
 
-The bot monitors posts from configured accounts (e.g. @bt_first_said) and automatically responds to single-word posts.
+The bot can optionally monitor posts from specific accounts (e.g. @bt_first_said) and automatically respond to single-word posts. This feature is enabled by setting `BT_FIRST_SAID_ACCOUNT` in `.env`. If not configured, the bot operates in mention-only mode.
 
 ### Error handling
 
