@@ -8,6 +8,7 @@ dependencies = [
     "Mastodon.py>=1.8.0",
     "python-dotenv>=1.0.0",
     "langdetect>=1.0.9",
+    "urllib3<2.0.0",
 ]
 
 [project.optional-dependencies]
