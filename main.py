@@ -12,8 +12,7 @@ from collections import defaultdict
 from typing import Dict, List
 
 from dotenv import load_dotenv
-from mastodon import Mastodon, StreamListener
-
+from mastodon import Mastodon, StreamListener, MastodonMalformedEventError
 from mastodon.errors import MastodonAPIError, MastodonNetworkError, MastodonRatelimitError
 
 from scrabble import (
@@ -229,6 +228,26 @@ class ScrabbleBot:
 
         return False
 
+    def get_backoff_delay(self, count: int, is_malformed: bool = False) -> int:
+        """
+        Calculate reconnect delay with exponential backoff.
+        
+        Sequence for malformed events: 2s -> 30s -> 60s -> 300s (5min)
+        Sequence for generic errors: 30s -> 60s -> 300s
+        """
+        if is_malformed and count == 1:
+            return 2
+        
+        # Adjust count for malformed events since index 1 was 2s
+        adj_count = count - 1 if is_malformed else count
+        
+        if adj_count <= 1:
+            return self.reconnect_delay  # Default 30s
+        elif adj_count == 2:
+            return 60  # 1 minute
+        else:
+            return 300  # 5 minutes
+
     def setup(self):
         """Initialize Mastodon API and account state."""
         if not self.access_token:
@@ -418,6 +437,9 @@ class ScrabbleBot:
         last_cleanup = time.time()
         cleanup_interval = 3600  # Cleanup every hour
 
+        # Track consecutive errors for specialized backoff
+        consecutive_malformed_errors = 0
+
         while not self.shutdown_requested:
             # Periodic cleanup of rate limiter
             if time.time() - last_cleanup > cleanup_interval:
@@ -427,23 +449,36 @@ class ScrabbleBot:
             try:
                 # This call blocks while the stream is open
                 self.mastodon.stream_user(listener)
+                
+                # If the stream closes normally or after success, reset counters
+                consecutive_malformed_errors = 0
+                self.reconnect_count = 0
             except KeyboardInterrupt:
                 logger.info("KeyboardInterrupt empfangen, beende Bot...")
                 break
+            except MastodonMalformedEventError as e:
+                if self.shutdown_requested:
+                    break
+                
+                consecutive_malformed_errors += 1
+                delay = self.get_backoff_delay(consecutive_malformed_errors, is_malformed=True)
+                
+                logger.warning(f"Malformed event im Stream (Versuch {consecutive_malformed_errors}): {e}")
+                logger.info(f"Reconnect in {delay} Sekunden...")
+                time.sleep(delay)
+                continue
             except Exception as e:
                 if self.shutdown_requested:
                     break
 
                 self.reconnect_count += 1
+                consecutive_malformed_errors = 0 # Reset this as it's a different type of error
+                
+                delay = self.get_backoff_delay(self.reconnect_count, is_malformed=False)
+                
                 logger.error(f"Stream-Verbindung abgebrochen: {e} (Versuch {self.reconnect_count})")
-
-                # Check if max reconnect attempts reached (0 = unlimited)
-                if self.max_reconnect_attempts > 0 and self.reconnect_count >= self.max_reconnect_attempts:
-                    logger.error(f"Maximale Anzahl von Reconnect-Versuchen ({self.max_reconnect_attempts}) erreicht. Beende Bot.")
-                    break
-
-                logger.info(f"Versuche Reconnect in {self.reconnect_delay} Sekunden...")
-                time.sleep(self.reconnect_delay)
+                logger.info(f"Reconnect in {delay} Sekunden...")
+                time.sleep(delay)
 
         self.shutdown()
 
