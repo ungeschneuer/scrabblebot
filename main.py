@@ -193,6 +193,10 @@ class ScrabbleBot:
         self.shutdown_requested = False
         self.rate_limiter = RateLimiter(rate_limit_max, rate_limit_window, rate_limit_enabled)
 
+        # In-memory cache of recently processed status IDs to prevent duplicates
+        self.processed_status_ids = set()
+        self.max_processed_cache = 100  # Keep last 100 IDs in memory
+
     def send_reply_with_retry(self, status, message, max_retries=3):
         """
         Send a reply with retry logic for transient errors.
@@ -356,10 +360,17 @@ class ScrabbleBot:
         """Process a status and reply if it contains a word."""
         status_id = status["id"]
 
+        # Check if we already processed this status (in-memory cache)
+        if status_id in self.processed_status_ids:
+            logger.debug(f"Status {status_id} already processed (in cache), skipping")
+            return
+
         # Avoid processing older items if we have a state (safety check for stream glitches)
         if is_mention and self.last_mention_id and status_id <= self.last_mention_id:
+            logger.debug(f"Status {status_id} older than last_mention_id {self.last_mention_id}, skipping")
             return
         if not is_mention and self.last_bt_id and status_id <= self.last_bt_id:
+            logger.debug(f"Status {status_id} older than last_bt_id {self.last_bt_id}, skipping")
             return
 
         content = status["content"]
@@ -369,7 +380,17 @@ class ScrabbleBot:
 
         if is_mention:
             word, has_multiple_words = self.extract_word(content)
+
+            # Mark as processed BEFORE doing anything else
             self.last_mention_id = status_id
+            self.processed_status_ids.add(status_id)
+            self.save_state()  # Save immediately to prevent reprocessing
+
+            # Trim cache if it gets too large
+            if len(self.processed_status_ids) > self.max_processed_cache:
+                # Remove oldest entries (convert to sorted list, remove first half)
+                sorted_ids = sorted(self.processed_status_ids)
+                self.processed_status_ids = set(sorted_ids[self.max_processed_cache // 2:])
 
             # Check rate limit for mentions (only rate limit mentions, not bt_first_said posts)
             if not self.rate_limiter.is_allowed(user_id):
@@ -382,12 +403,20 @@ class ScrabbleBot:
                     logger.info(f"Rate limit Fehler gesendet an User {user_id}")
                 else:
                     logger.error("Rate limit Fehlermeldung konnte nicht gesendet werden")
-                self.save_state()
                 return
 
         elif self.is_single_word(content):
             word = self.strip_html(content).strip()
+
+            # Mark as processed BEFORE doing anything else
             self.last_bt_id = status_id
+            self.processed_status_ids.add(status_id)
+            self.save_state()  # Save immediately to prevent reprocessing
+
+            # Trim cache if it gets too large
+            if len(self.processed_status_ids) > self.max_processed_cache:
+                sorted_ids = sorted(self.processed_status_ids)
+                self.processed_status_ids = set(sorted_ids[self.max_processed_cache // 2:])
 
         # Handle multiple words error for mentions
         if is_mention and has_multiple_words:
@@ -400,7 +429,9 @@ class ScrabbleBot:
                 logger.info(f"Fehler gesendet: Mehrere Wörter erkannt")
             else:
                 logger.error("Fehlermeldung konnte nicht gesendet werden")
-        elif word:
+            return
+
+        if word:
             # Validate word contains only letters
             if not is_valid_word(word):
                 post_lang = status.get("language", "de")
@@ -412,7 +443,6 @@ class ScrabbleBot:
                     logger.info(f"Fehler gesendet: Ungültiges Wort '{word}'")
                 else:
                     logger.error("Fehlermeldung konnte nicht gesendet werden")
-                self.save_state()
                 return
 
             # Word is valid, calculate points and respond
@@ -429,7 +459,6 @@ class ScrabbleBot:
                     logger.info(f"Unsupported language Fehler gesendet für Wort '{word}'")
                 else:
                     logger.error("Unsupported language Fehlermeldung konnte nicht gesendet werden")
-                self.save_state()
                 return
 
             # Format and send normal response (reuse already calculated points and language)
@@ -439,8 +468,6 @@ class ScrabbleBot:
                 logger.info(f"Antwort gesendet: {word} -> {response}")
             else:
                 logger.error(f"Antwort konnte nicht gesendet werden für Wort: {word}")
-
-        self.save_state()
 
     def shutdown(self):
         """Gracefully shutdown the bot."""
