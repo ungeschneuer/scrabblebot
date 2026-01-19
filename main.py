@@ -172,6 +172,10 @@ class ScrabbleListener(StreamListener):
 
     def on_update(self, status):
         """Handle new statuses in home timeline (followed accounts)."""
+        # Only process if monitoring is enabled
+        if not self.bot.bt_account_name:
+            return
+
         # Check if the status is from the targeted account
         if status['account']['acct'] == self.bot.bt_account_name:
             logger.info(f"Update received: Post from @{self.bot.bt_account_name}")
@@ -184,7 +188,7 @@ class ScrabbleBot:
     def __init__(self):
         # Configuration from environment variables
         self.mastodon_instance = os.getenv("MASTODON_INSTANCE", "https://mastodon.social")
-        self.bt_account_name = os.getenv("BT_FIRST_SAID_ACCOUNT", "bt_first_said")
+        self.bt_account_name = os.getenv("BT_FIRST_SAID_ACCOUNT")  # Optional: None if not set
         self.last_ids_file = os.getenv("LAST_IDS_FILE", "last_ids.json")
         self.access_token = os.getenv("MASTODON_BOT_ACCESS_TOKEN")
         self.reconnect_delay = int(os.getenv("RECONNECT_DELAY_SECONDS", "30"))
@@ -301,16 +305,19 @@ class ScrabbleBot:
             logger.error(f"Fehler beim Abrufen der Bot-Credentials: {e}")
             return False
 
-        # Get the account ID of the target using public lookup
+        # Get the account ID of the target using public lookup (optional)
         # (access token has limited scopes, so we use unauthenticated lookup)
-        try:
-            public_mastodon = Mastodon(api_base_url=self.mastodon_instance)
-            target_account = public_mastodon.account_lookup(self.bt_account_name)
-            self.bt_account_id = target_account["id"]
-            logger.info(f"Account @{self.bt_account_name} gefunden (ID: {self.bt_account_id})")
-        except Exception as e:
-            logger.error(f"Fehler: Account @{self.bt_account_name} nicht gefunden: {e}")
-            return False
+        if self.bt_account_name:
+            try:
+                public_mastodon = Mastodon(api_base_url=self.mastodon_instance)
+                target_account = public_mastodon.account_lookup(self.bt_account_name)
+                self.bt_account_id = target_account["id"]
+                logger.info(f"Account @{self.bt_account_name} gefunden (ID: {self.bt_account_id}) - Monitoring aktiviert")
+            except Exception as e:
+                logger.error(f"Fehler: Account @{self.bt_account_name} nicht gefunden: {e}")
+                return False
+        else:
+            logger.info("Kein Account zum Monitoren konfiguriert - nur Mention-Modus aktiv")
 
         # Load persistence state
         self.load_state()
