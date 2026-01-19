@@ -147,6 +147,12 @@ class ScrabbleListener(StreamListener):
             logger.info(f"Notification received: Mention from {status['account']['acct']}")
             self.bot.process_status(status, is_mention=True)
 
+    def _dispatch(self, event):
+        """Override _dispatch to ignore empty events (heartbeats)."""
+        if not event:
+            return
+        super()._dispatch(event)
+
     def on_update(self, status):
         """Handle new statuses in home timeline (followed accounts)."""
         # Check if the status is from the targeted account
@@ -312,15 +318,27 @@ class ScrabbleBot:
                 - has_multiple_words: True if more than one word was found
         """
         text = self.strip_html(content)
-        # Remove @mentions
-        text = re.sub(r'@\w+(@[\w.]+)?', '', text)
-        words = text.split()
+        # Remove @mentions (allow whitespace because strip_html might put spaces between @ and name)
+        text = re.sub(r'@\s*\w+(@[\w.]+)?', '', text)
+        tokens = text.split()
 
-        if not words:
+        if not tokens:
             return None, False
 
-        has_multiple = len(words) > 1
-        return words[0], has_multiple
+        # Separate normal words and hashtags
+        hashtags = [t for t in tokens if t.startswith('#')]
+        words = [t for t in tokens if not t.startswith('#')]
+
+        # "In parsing, always ignore hashtags if there is one valid word."
+        if words:
+            return words[0], len(words) > 1
+
+        # "If the hashtag is the only word, remove the hashtag character and process it like a normal word."
+        if hashtags:
+            cleaned_hashtag = hashtags[0].lstrip('#')
+            return cleaned_hashtag, len(hashtags) > 1
+
+        return None, False
 
     def is_single_word(self, content: str) -> bool:
         """Check if the content is exactly one word."""
