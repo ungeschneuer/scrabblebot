@@ -11,6 +11,7 @@ A Mastodon bot that calculates Scrabble points for words in 11 different languag
   - Responds to direct @mentions (public, unlisted, private)
   - Handles filtered mentions
   - Monitors posts from specific accounts (e.g. @bt_first_said)
+- **Smart mention detection**: Automatically ignores citations, conversations, and meta-discussions
 - **Rate limiting**: Protection against spam with configurable sliding window
 - **Word validation**: Checks for valid Scrabble characters
 - **Unsupported language detection**: Helpful error messages for non-Latin scripts
@@ -152,6 +153,46 @@ The bot processes filtered mentions just like regular mentions, ensuring no ment
 ### Monitoring mode (optional)
 
 The bot can optionally monitor posts from specific accounts (e.g. @bt_first_said) and automatically respond to single-word posts. This feature is enabled by setting `BT_FIRST_SAID_ACCOUNT` in `.env`. If not configured, the bot operates in mention-only mode.
+
+### Smart mention detection
+
+The bot intelligently ignores mentions that are clearly not score requests:
+
+**Citations and quotes** - When someone quotes or cites one of the bot's posts:
+```
+User quotes your post about HELLO
+Bot: [no response - recognizes it's being cited]
+```
+
+**Conversations in threads** - When mentioned in a reply to someone else with conversational language:
+```
+@user1 Why is @scrabble_bot not working?
+Bot: [no response - conversational thread]
+```
+
+**Meta-discussions** - When people talk about the bot rather than to it:
+```
+@user1 @user2 Have you tried the bot? It's great!
+Bot: [no response - discussion about the bot]
+```
+
+**Group discussions** - Posts with many mentions (3+):
+```
+@user1 @user2 @scrabble_bot @user3 Let's play Scrabble!
+Bot: [no response - group conversation]
+```
+
+**Normal score requests still work**:
+```
+@scrabble_bot Hello
+Bot: Das Wort "HELLO" ist 8 Scrabble-Punkte wert (Englisch).
+```
+
+The bot uses pattern matching to detect:
+- Questions about the bot (warum, why, how, what)
+- Phrases like "the bot", "this bot", "der bot"
+- Posts with "thanks", "danke", "merci"
+- Reblogs/boosts with commentary
 
 ### Error handling
 

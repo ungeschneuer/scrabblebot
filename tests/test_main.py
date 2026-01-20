@@ -105,6 +105,178 @@ class TestScrabbleBot:
         assert bot.shutdown_requested is True
 
 
+class TestSmartMentionDetection:
+    """Tests for should_ignore_mention method."""
+
+    def test_ignore_quote_of_bot_post(self):
+        """Test ignoring quotes/citations of bot's own posts."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot check this out</p>',
+            'quote': {
+                'account': {'id': '12345'},  # Bot's own post
+                'content': 'Some quoted content'
+            }
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "quoting" in reason.lower()
+
+    def test_ignore_reblog_of_bot_post(self):
+        """Test ignoring reblogs/boosts of bot's own posts."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot this is interesting</p>',
+            'reblog': {
+                'account': {'id': '12345'},  # Bot's own post
+                'content': 'Some reblogged content'
+            }
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "reblog" in reason.lower()
+
+    def test_ignore_conversational_reply_with_question(self):
+        """Test ignoring conversational replies with questions."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@someone Why is @bot not working?</p>',
+            'in_reply_to_account_id': '99999'  # Replying to someone else
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "conversational" in reason.lower()
+
+    def test_ignore_meta_discussion_about_bot(self):
+        """Test ignoring meta-discussions about the bot."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@user1 @user2 The bot is really helpful!</p>'
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "meta-discussion" in reason.lower()
+
+    def test_ignore_group_discussion_multiple_mentions(self):
+        """Test ignoring group discussions with multiple mentions."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@user1 @user2 @bot @user3 Let\'s all play Scrabble!</p>'
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "group discussion" in reason.lower()
+
+    def test_ignore_thanks_in_thread(self):
+        """Test ignoring thank you messages in threads."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@someone Thanks for telling me about @bot!</p>',
+            'in_reply_to_account_id': '99999'  # Replying to someone else
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "conversational" in reason.lower()
+
+    def test_ignore_bot_capability_discussion(self):
+        """Test ignoring discussions about bot capabilities."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@user Der Bot kann Scrabble-Punkte berechnen</p>'
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is True
+        assert "meta-discussion" in reason.lower()
+
+    def test_allow_normal_score_request(self):
+        """Test allowing normal score requests."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot hello</p>'
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is False
+        assert reason == ""
+
+    def test_allow_single_word_with_meta_phrase(self):
+        """Test allowing single word requests even with meta phrases."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        # "The bot" phrase but with a single word - should still process
+        status = {
+            'content': '<p>@bot hello</p>'  # Just a mention and a word
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is False
+
+    def test_allow_reply_to_bot(self):
+        """Test allowing replies directly to the bot."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot world</p>',
+            'in_reply_to_account_id': '12345'  # Replying to bot itself
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is False
+
+    def test_no_quote_field(self):
+        """Test handling status without quote field."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot test</p>'
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is False
+
+    def test_quote_from_different_user(self):
+        """Test not ignoring quotes from other users."""
+        bot = ScrabbleBot()
+        bot.my_id = "12345"
+
+        status = {
+            'content': '<p>@bot test</p>',
+            'quote': {
+                'account': {'id': '99999'},  # Different user's post
+                'content': 'Some quoted content'
+            }
+        }
+
+        should_ignore, reason = bot.should_ignore_mention(status)
+        assert should_ignore is False
+
+
 class TestStateManagement:
     """Tests for state persistence."""
 
