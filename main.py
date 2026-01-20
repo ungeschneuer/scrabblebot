@@ -152,6 +152,12 @@ class ScrabbleListener(StreamListener):
             if account_id == self.bot.my_id:
                 return
 
+            # Check if this mention should be ignored (citations, conversations, etc.)
+            should_ignore, reason = self.bot.should_ignore_mention(status)
+            if should_ignore:
+                logger.info(f"Ignoring mention from {status['account']['acct']}: {reason}")
+                return
+
             visibility = status.get('visibility', 'public')
             is_filtered = notification.get('filtered') is not None
 
@@ -397,6 +403,85 @@ class ScrabbleBot:
         text = re.sub(r'<[^>]+>', ' ', text)
         text = unescape(text)
         return text.strip()
+
+    def should_ignore_mention(self, status) -> tuple[bool, str]:
+        """
+        Determine if a mention should be ignored based on context.
+
+        Returns:
+            tuple: (should_ignore, reason)
+                - should_ignore: True if the mention should be ignored
+                - reason: Human-readable reason for ignoring
+        """
+        # Check if this is a quote/citation of the bot's own post
+        if 'quote' in status and status['quote']:
+            quoted_account_id = str(status['quote']['account']['id'])
+            if quoted_account_id == self.my_id:
+                return True, "quoting bot's own post"
+
+        # Check if status has a reblog field (boosting bot's post with comment)
+        if 'reblog' in status and status['reblog']:
+            reblog_account_id = str(status['reblog']['account']['id'])
+            if reblog_account_id == self.my_id:
+                return True, "reblogging/boosting bot's post"
+
+        # Check if this is a reply to someone else (not the bot or original post)
+        reply_to_account = status.get('in_reply_to_account_id')
+        if reply_to_account:
+            reply_to_account_id = str(reply_to_account)
+            # If replying to someone else, check if this is conversational
+            if reply_to_account_id != self.my_id:
+                # This is a reply in a thread with someone else
+                content = self.strip_html(status['content']).lower()
+
+                # If the post has conversational indicators, likely not a score request
+                conversational_patterns = [
+                    r'\?',  # Question marks (asking about the bot)
+                    r'\bwarum\b', r'\bweshalb\b', r'\bwieso\b',  # German: why
+                    r'\bwhy\b', r'\bhow\b', r'\bwhat\b',  # English: question words
+                    r'\bpourquoi\b', r'\bcomment\b',  # French: why, how
+                    r'\bbot\b.*\b(ist|does|macht|is|fait)',  # Talking about the bot
+                    r'\b(danke|thanks|merci)\b',  # Thanking someone
+                ]
+
+                for pattern in conversational_patterns:
+                    if re.search(pattern, content):
+                        return True, "conversational reply in thread"
+
+        # Check for meta-discussion patterns (talking about the bot, not to it)
+        content = self.strip_html(status['content'])
+        content_lower = content.lower()
+
+        # Count mentions - if multiple bots/people are mentioned, likely a discussion
+        mention_count = len(re.findall(r'@\s*\w+', content))
+        if mention_count > 2:  # More than 2 mentions suggests group discussion
+            return True, "group discussion with multiple mentions"
+
+        # Check for phrases indicating discussion about the bot
+        meta_patterns = [
+            r'\b(der|die|das)\s+bot\b',  # German: the bot (talking about)
+            r'\b(dieser|diese|dieses)\s+bot\b',  # German: this bot
+            r'\bthe\s+bot\b',  # English: the bot
+            r'\bthis\s+bot\b',  # English: this bot
+            r'\ble\s+bot\b',  # French: the bot
+            r'\bce\s+bot\b',  # French: this bot
+            r'\bbot\s+(ist|is|kann|can|macht|does|hat|has)\b',  # Bot capabilities discussion
+        ]
+
+        for pattern in meta_patterns:
+            if re.search(pattern, content_lower):
+                # Double-check: if there's ONLY the mention and a single word, it's likely a score request
+                text_without_mentions = re.sub(r'@\s*\w+(@[\w.]+)?', '', content)
+                words = text_without_mentions.split()
+                clean_words = [w for w in words if w and not w.startswith('#')]
+
+                # If after removing mentions there's exactly 1 word, it's a score request
+                if len(clean_words) == 1:
+                    return False, ""
+
+                return True, "meta-discussion about the bot"
+
+        return False, ""
 
     def extract_word(self, content: str) -> tuple[str | None, bool]:
         """
