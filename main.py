@@ -717,10 +717,24 @@ if __name__ == "__main__":
 
     bot = ScrabbleBot()
 
+    # PID file path (must match check_single_instance)
+    pid_file = "/tmp/scrabble-bot.pid"
+
     # Setup signal handlers for graceful shutdown
     def signal_handler(sig, frame):
         logger.info(f"Signal {sig} received, shutting down bot gracefully...")
         bot.shutdown_requested = True
+
+        # Clean up PID file immediately to allow new instance to start
+        try:
+            if os.path.exists(pid_file):
+                with open(pid_file, 'r') as f:
+                    stored_pid = int(f.read().strip())
+                if stored_pid == os.getpid():
+                    os.remove(pid_file)
+                    logger.info("PID file removed")
+        except Exception as e:
+            logger.warning(f"Could not remove PID file: {e}")
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
