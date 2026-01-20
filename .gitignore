@@ -24,3 +24,4 @@ venv
 
 # Sensitive data files
 last_ids.json
+scrabble-bot.ini
